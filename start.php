@@ -25,9 +25,14 @@ function facebookservice_init() {
 }
 
 function facebookservice_pagehandler($page) {
+	global $CONFIG;
+	
 	if (!isset($page[0])) {
 		forward();
 	}
+	
+	// @hack Current htaccess rewrite rules do not preserve $_GET. Refs #2115
+	$_GET['session'] = $CONFIG->input['session'];
 	
 	switch ($page[0]) {
 		case 'authorize':

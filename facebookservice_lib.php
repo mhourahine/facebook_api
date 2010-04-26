@@ -10,11 +10,41 @@ function facebookservice_use_fbconnect() {
 }
 
 function facebookservice_authorize() {
-	var_dump('authorize');
+	$facebook = facebookservice_api();
+	if (!$session = $facebook->getSession()) {
+		register_error(elgg_echo('facebookservice:authorize:error'));
+		forward('pg/settings/plugins');
+	}
+	
+	// only one user to be authorized per account
+	$values = array(
+		'plugin:settings:facebookservice:access_token' => $session['access_token'],
+		'plugin:settings:facebookservice:uid' => $session['uid'],
+	);
+	
+	if ($users = get_entities_from_private_setting_multi($values, 'user', '', 0, '', 0)) {
+		foreach ($users as $user) {
+			// revoke access
+			clear_plugin_usersetting('access_token', $user->getGUID(), 'facebookservice');
+			clear_plugin_usersetting('uid', $user->getGUID(), 'facebookservice');
+		}
+	}
+	
+	// register user's access tokens
+	set_plugin_usersetting('access_token', $session['access_token'], 'facebookservice');
+	set_plugin_usersetting('uid', $session['uid'], 'facebookservice');
+	
+	system_message(elgg_echo('facebookservice:authorize:success'));
+	forward('pg/settings/plugins');
 }
 
 function facebookservice_revoke() {
-	var_dump('revoke');
+	// unregister user's private settings
+	clear_plugin_usersetting('access_token');
+	clear_plugin_usersetting('uid');
+	
+	system_message(elgg_echo('facebookservice:revoke:success'));
+	forward('pg/settings/plugins');
 }
 
 function facebookservice_api() {
@@ -24,16 +54,26 @@ function facebookservice_api() {
 	));
 }
 
-function facebookservice_login() {
+function facebookservice_get_authorize_url($next='') {
 	global $CONFIG;
 	
+	if (!$next) {
+		// default to login page
+		$next = "{$CONFIG->site->url}pg/facebookservice/login";
+	}
+	
+	$facebook = facebookservice_api();
+	return $facebook->getLoginUrl(array(
+		'next' => $next,
+		'req_perms' => 'offline_access,email',
+	));
+}
+
+function facebookservice_login() {
 	// sanity check
 	if (!facebookservice_use_fbconnect()) {
 		forward();
 	}
-	
-	// @hack Current htaccess rewrite rules do not preserve $_GET. Refs #2115
-	$_GET['session'] = $CONFIG->input['session'];
 	
 	$facebook = facebookservice_api();
 	if (!$session = $facebook->getSession()) {
