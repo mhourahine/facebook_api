@@ -31,8 +31,8 @@ function facebookservice_authorize() {
 	}
 	
 	// register user's access tokens
-	set_plugin_usersetting('access_token', $session['access_token'], 'facebookservice');
-	set_plugin_usersetting('uid', $session['uid'], 'facebookservice');
+	set_plugin_usersetting('access_token', $session['access_token'], 0, 'facebookservice');
+	set_plugin_usersetting('uid', $session['uid'], 0, 'facebookservice');
 	
 	system_message(elgg_echo('facebookservice:authorize:success'));
 	forward('pg/settings/plugins');
@@ -87,7 +87,36 @@ function facebookservice_login() {
 	);
 	
 	if (!$users = get_entities_from_private_setting_multi($values, 'user', '', 0, '', 0)) {
-		register_error(elgg_echo('facebookservice:login:error'));
+		$data = $facebook->api('/me');
+		
+		// backward compatibility for stalled-development FBConnect plugin
+		$user = FALSE;
+		$facebook_users = elgg_get_entities_from_metadata(array(
+			'type' => 'user',
+			'metadata_name' => 'facebook_uid',
+			'metadata_value' => $session['uid'],
+		));
+		if (count($facebook_users) == 1) {
+			// convert existing account
+			$user = $facebook_users[0];
+			
+			// remove unused metadata
+			remove_metadata($user->getGUID(), 'facebook_uid');
+			remove_metadata($user->getGUID(), 'facebook_controlled_profile');
+		}
+		
+		if (!$user) {
+			register_error(elgg_echo('facebookservice:login:error'));
+			forward();
+		}
+		
+		login($user);
+		
+		// register user's access tokens
+		set_plugin_usersetting('access_token', $session['access_token'], $user->getGUID(), 'facebookservice');
+		set_plugin_usersetting('uid', $session['uid'], $user->getGUID(), 'facebookservice');
+		
+		system_message(elgg_echo('facebookservice:login:success'));
 		forward();
 	} elseif (count($users) == 1) {
 		login($users[0]);
