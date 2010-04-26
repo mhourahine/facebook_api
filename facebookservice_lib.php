@@ -87,7 +87,8 @@ function facebookservice_login() {
 	);
 	
 	if (!$users = get_entities_from_private_setting_multi($values, 'user', '', 0, '', 0)) {
-		var_dump($session);exit;
+		register_error(elgg_echo('facebookservice:login:error'));
+		forward();
 	} elseif (count($users) == 1) {
 		login($users[0]);
 		
