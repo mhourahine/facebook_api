@@ -40,8 +40,8 @@ function facebookservice_authorize() {
 
 function facebookservice_revoke() {
 	// unregister user's private settings
-	clear_plugin_usersetting('access_token');
-	clear_plugin_usersetting('uid');
+	clear_plugin_usersetting('access_token', 0, 'facebookservice');
+	clear_plugin_usersetting('uid', 0, 'facebookservice');
 	
 	system_message(elgg_echo('facebookservice:revoke:success'));
 	forward('pg/settings/plugins');
@@ -93,12 +93,16 @@ function facebookservice_login() {
 		$user = FALSE;
 		$facebook_users = elgg_get_entities_from_metadata(array(
 			'type' => 'user',
-			'metadata_name' => 'facebook_uid',
-			'metadata_value' => $session['uid'],
+			'metadata_name_value_pairs' => array(
+				'name' => 'facebook_uid',
+				'value' => $session['uid'],
+			),
 		));
-		if (count($facebook_users) == 1) {
+		
+		if (is_array($facebook_users) && count($facebook_users) == 1) {
 			// convert existing account
 			$user = $facebook_users[0];
+			login($user);
 			
 			// remove unused metadata
 			remove_metadata($user->getGUID(), 'facebook_uid');
@@ -106,11 +110,35 @@ function facebookservice_login() {
 		}
 		
 		if (!$user) {
-			register_error(elgg_echo('facebookservice:login:error'));
-			forward();
+			// trigger a hook for plugin authors to intercept
+			if (!trigger_plugin_hook('new_facebook_user', 'facebook_service', array('account' => $data), TRUE)) {
+				// halt execution
+				register_error(elgg_echo('facebookservice:login:error'));
+				forward();
+			}
+			
+			$username = substr(parse_url($data['link'], PHP_URL_PATH), 1) . '_facebook';
+			$password = generate_random_cleartext_password();
+			
+			try {
+				// create new account
+				if (!$user_id = register_user($username, $password, $data['name'], $data['email'])) {
+					register_error(elgg_echo('registerbad'));
+					forward();
+				}
+			} catch (RegistrationException $r) {
+				register_error($r->getMessage());
+				forward();
+			}
+			
+			$user = new ElggUser($user_id);
+			
+			// pull in Facebook icon
+			facebookservice_update_user_avatar($user, "https://graph.facebook.com/{$data['id']}/picture?type=large");
+			
+			system_message(elgg_echo('facebookservice:login:new'));
+			login($user);
 		}
-		
-		login($user);
 		
 		// register user's access tokens
 		set_plugin_usersetting('access_token', $session['access_token'], $user->getGUID(), 'facebookservice');
@@ -128,4 +156,51 @@ function facebookservice_login() {
 	// register login error
 	register_error(elgg_echo('facebookservice:login:error'));
 	forward();
+}
+
+function facebookservice_update_user_avatar($user, $file_location) {
+	// we need to resolve the file location from Facebook
+	$ch = curl_init($file_location);
+	$options = array(
+		CURLOPT_RETURNTRANSFER => TRUE,
+		CURLOPT_HEADER         => FALSE,
+		CURLOPT_FOLLOWLOCATION => TRUE,
+		CURLOPT_ENCODING       => '',
+		CURLOPT_USERAGENT      => 'facebook-php-2.0',
+		CURLOPT_AUTOREFERER    => TRUE,
+		CURLOPT_CONNECTTIMEOUT => 120,
+		CURLOPT_TIMEOUT        => 120,
+		CURLOPT_MAXREDIRS      => 10,
+	);
+	curl_setopt_array($ch, $options);
+	curl_exec($ch);
+	$header = curl_getinfo($ch);
+	curl_close($ch);
+	
+	$sizes = array(
+		'topbar' => array(16, 16, TRUE),
+		'tiny' => array(25, 25, TRUE),
+		'small' => array(40, 40, TRUE),
+		'medium' => array(100, 100, TRUE),
+		'large' => array(200, 200, FALSE),
+		'master' => array(550, 550, FALSE),
+	);
+	
+	$filehandler = new ElggFile();
+	$filehandler->owner_guid = $user->getGUID();
+	foreach ($sizes as $size => $dimensions) {
+		$image = get_resized_image_from_existing_file(
+			$header['url'],
+			$dimensions[0],
+			$dimensions[1],
+			$dimensions[2]
+		);
+
+		$filehandler->setFilename("profile/$user->username$size.jpg");
+		$filehandler->open('write');
+		$filehandler->write($image);
+		$filehandler->close();
+	}
+	
+	return TRUE;
 }

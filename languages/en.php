@@ -13,6 +13,7 @@ $english = array(
 	
 	'facebookservice:login:success' => 'You have signed in with Facebook.',
 	'facebookservice:login:error' => 'Unable to sign on with Facebook.',
+	'facebookservice:login:new' => "A new {$CONFIG->site->name} account has been created from your Facebook account.",
 	
 	'facebookservice:usersettings:description' => "Link your {$CONFIG->site->name} account with Facebook.",
 	'facebookservice:usersettings:authorize' => "You must first <a href=\"%s\">authorize</a> {$CONFIG->site->name} to access Facebook.",
