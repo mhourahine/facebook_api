@@ -110,6 +110,12 @@ function facebookservice_login() {
 		}
 		
 		if (!$user) {
+			// check new registration allowed
+			if (!$CONFIG->allow_registration) {
+				register_error(elgg_echo('registerdisabled'));
+				forward();
+			}
+			
 			// trigger a hook for plugin authors to intercept
 			if (!trigger_plugin_hook('new_facebook_user', 'facebook_service', array('account' => $data), TRUE)) {
 				// halt execution
