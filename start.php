@@ -18,6 +18,9 @@ function facebookservice_init() {
 	// register page handler
 	register_page_handler('facebookservice', 'facebookservice_pagehandler');
 	
+	// register Walled Garden public pages
+	register_plugin_hook('public_pages', 'walled_garden', 'facebookservice_public_pages');
+	
 	// Facebook Connect
 	if (facebookservice_use_fbconnect()) {
 		elgg_extend_view('account/forms/login', 'facebookservice/login');
@@ -48,4 +51,12 @@ function facebookservice_pagehandler($page) {
 			forward();
 			break;
 	}
+}
+
+function facebookservice_public_pages($hook, $type, $return_value, $params) {
+	global $CONFIG;
+	
+	$return_value[] = "{$CONFIG->url}pg/facebookservice/login";
+	
+	return $return_value;
 }
