@@ -23,7 +23,7 @@ function facebookservice_init() {
 	
 	// Facebook Connect
 	if (facebookservice_use_fbconnect()) {
-		elgg_extend_view('account/forms/login', 'facebookservice/login');
+		elgg_extend_view('login/extend', 'facebookservice/login');
 	}
 }
 
