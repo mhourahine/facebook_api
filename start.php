@@ -54,9 +54,6 @@ function facebookservice_pagehandler($page) {
 }
 
 function facebookservice_public_pages($hook, $type, $return_value, $params) {
-	global $CONFIG;
-	
-	$return_value[] = "{$CONFIG->url}pg/facebookservice/login";
-	
+	$return_value[] = 'pg/facebookservice/login';
 	return $return_value;
 }
