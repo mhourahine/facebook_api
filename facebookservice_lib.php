@@ -70,6 +70,8 @@ function facebookservice_get_authorize_url($next='') {
 }
 
 function facebookservice_login() {
+	global $CONFIG;
+	
 	// sanity check
 	if (!facebookservice_use_fbconnect()) {
 		forward();

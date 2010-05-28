@@ -17,7 +17,7 @@ class FacebookApiException extends Exception
   /**
    * The result from the API server that represents the exception information.
    */
-  private $result;
+  protected $result;
 
   /**
    * Make a new API Exception with the given result.
@@ -77,11 +77,9 @@ class FacebookApiException extends Exception
 class Facebook
 {
   /**
-   * List of error codes that trigger clearing of the session.
+   * Version.
    */
-  private static $SESSION_INVALID_ERRORS = array(
-    190, // Invalid OAuth Access Token
-  );
+  const VERSION = '2.0.4';
 
   /**
    * Default options for curl.
@@ -97,7 +95,7 @@ class Facebook
    * List of query parameters that get automatically dropped when rebuilding
    * the current URL.
    */
-  private static $DROP_QUERY_PARAMS = array(
+  protected static $DROP_QUERY_PARAMS = array(
     'session',
   );
 
@@ -114,38 +112,38 @@ class Facebook
   /**
    * The Application ID.
    */
-  private $appId;
+  protected $appId;
 
   /**
    * The Application API Secret.
    */
-  private $apiSecret;
+  protected $apiSecret;
 
   /**
    * The active user session, if one is available.
    */
-  private $session;
+  protected $session;
 
   /**
    * Indicates that we already loaded the session as best as we could.
    */
-  private $sessionLoaded = false;
+  protected $sessionLoaded = false;
 
   /**
    * Indicates if Cookie support should be enabled.
    */
-  private $cookieSupport = false;
+  protected $cookieSupport = false;
 
   /**
    * Base domain for the Cookie.
    */
-  private $baseDomain = '';
+  protected $baseDomain = '';
 
   /**
    * Initialize a Facebook Application.
    *
    * The configuration:
-   * - appId: the application API key
+   * - appId: the application ID
    * - secret: the application secret
    * - cookie: (optional) boolean true to enable cookie support
    * - domain: (optional) domain for the cookie
@@ -166,7 +164,7 @@ class Facebook
   /**
    * Set the Application ID.
    *
-   * @param String $appId the API key
+   * @param String $appId the Application ID
    */
   public function setAppId($appId) {
     $this->appId = $appId;
@@ -174,9 +172,9 @@ class Facebook
   }
 
   /**
-   * Get the API Key.
+   * Get the Application ID.
    *
-   * @return String the API key
+   * @return String the Application ID
    */
   public function getAppId() {
     return $this->appId;
@@ -243,12 +241,16 @@ class Facebook
    * Set the Session.
    *
    * @param Array $session the session
+   * @param Boolean $write_cookie indicate if a cookie should be written. this
+   * value is ignored if cookie support has been disabled.
    */
-  public function setSession($session=null) {
+  public function setSession($session=null, $write_cookie=true) {
     $session = $this->validateSessionObject($session);
     $this->sessionLoaded = true;
     $this->session = $session;
-    $this->setCookieFromSession($session);
+    if ($write_cookie) {
+      $this->setCookieFromSession($session);
+    }
     return $this;
   }
 
@@ -261,13 +263,14 @@ class Facebook
   public function getSession() {
     if (!$this->sessionLoaded) {
       $session = null;
+      $write_cookie = true;
 
-      // try loading session from $_GET
-      if (isset($_GET['session'])) {
+      // try loading session from $_REQUEST
+      if (isset($_REQUEST['session'])) {
         $session = json_decode(
           get_magic_quotes_gpc()
-            ? stripslashes($_GET['session'])
-            : $_GET['session'],
+            ? stripslashes($_REQUEST['session'])
+            : $_REQUEST['session'],
           true
         );
         $session = $this->validateSessionObject($session);
@@ -285,10 +288,12 @@ class Facebook
             '"'
           ), $session);
           $session = $this->validateSessionObject($session);
+          // write only if we need to delete a invalid session cookie
+          $write_cookie = empty($session);
         }
       }
 
-      $this->setSession($session);
+      $this->setSession($session, $write_cookie);
     }
 
     return $this->session;
@@ -405,10 +410,10 @@ class Facebook
    * @return the decoded response object
    * @throws FacebookApiException
    */
-  private function _restserver($params) {
+  protected function _restserver($params) {
     // generic application level parameters
     $params['api_key'] = $this->getAppId();
-    $params['format'] = 'json';
+    $params['format'] = 'json-strings';
 
     $result = json_decode($this->_oauthRequest(
       $this->getApiUrl($params['method']),
@@ -416,10 +421,7 @@ class Facebook
     ), true);
 
     // results are returned, errors are thrown
-    if (isset($result['error_code'])) {
-      if (in_array($result['error_code'], self::$SESSION_INVALID_ERRORS)) {
-        $this->setSession(null);
-      }
+    if (is_array($result) && isset($result['error_code'])) {
       throw new FacebookApiException($result);
     }
     return $result;
@@ -434,7 +436,7 @@ class Facebook
    * @return the decoded response object
    * @throws FacebookApiException
    */
-  private function _graph($path, $method='GET', $params=array()) {
+  protected function _graph($path, $method='GET', $params=array()) {
     if (is_array($method) && empty($params)) {
       $params = $method;
       $method = 'GET';
@@ -447,8 +449,12 @@ class Facebook
     ), true);
 
     // results are returned, errors are thrown
-    if (isset($result['error'])) {
-      throw new FacebookApiException($result);
+    if (is_array($result) && isset($result['error'])) {
+      $e = new FacebookApiException($result);
+      if ($e->getType() === 'OAuthException') {
+        $this->setSession(null);
+      }
+      throw $e;
     }
     return $result;
   }
@@ -461,15 +467,14 @@ class Facebook
    * @return the decoded response object
    * @throws FacebookApiException
    */
-  private function _oauthRequest($url, $params) {
+  protected function _oauthRequest($url, $params) {
     if (!isset($params['access_token'])) {
       $session = $this->getSession();
       // either user session signed, or app signed
       if ($session) {
         $params['access_token'] = $session['access_token'];
       } else {
-        // TODO (naitik) sync with abanker
-        //$params['access_token'] = $this->getAppId() .'|'. $this->getApiSecret();
+        $params['access_token'] = $this->getAppId() .'|'. $this->getApiSecret();
       }
     }
 
@@ -498,10 +503,21 @@ class Facebook
     }
 
     $opts = self::$CURL_OPTS;
-    $opts[CURLOPT_POSTFIELDS] = http_build_query($params, null, '&');
+    $opts[CURLOPT_POSTFIELDS] = $params;
     $opts[CURLOPT_URL] = $url;
     curl_setopt_array($ch, $opts);
     $result = curl_exec($ch);
+    if ($result === false) {
+      $e = new FacebookApiException(array(
+        'error_code' => curl_errno($ch),
+        'error'      => array(
+          'message' => curl_error($ch),
+          'type'    => 'CurlException',
+        ),
+      ));
+      curl_close($ch);
+      throw $e;
+    }
     curl_close($ch);
     return $result;
   }
@@ -511,7 +527,7 @@ class Facebook
    *
    * @return String the cookie name
    */
-  private function getSessionCookieName() {
+  protected function getSessionCookieName() {
     return 'fbs_' . $this->getAppId();
   }
 
@@ -521,7 +537,7 @@ class Facebook
    *
    * @param Array $session the session to use for setting the cookie
    */
-  private function setCookieFromSession($session=null) {
+  protected function setCookieFromSession($session=null) {
     if (!$this->useCookieSupport()) {
       return;
     }
@@ -538,16 +554,20 @@ class Facebook
       $expires = $session['expires'];
     }
 
+    // prepend dot if a domain is found
+    if ($domain) {
+      $domain = '.' . $domain;
+    }
+
     // if an existing cookie is not set, we dont need to delete it
     if ($value == 'deleted' && empty($_COOKIE[$cookieName])) {
       return;
     }
 
     if (headers_sent()) {
-      // disable error log if a argc is set as we are most likely running in a
-      // CLI environment
+      // disable error log if we are running in a CLI environment
       // @codeCoverageIgnoreStart
-      if (!array_key_exists('argc', $_SERVER)) {
+      if (php_sapi_name() != 'cli') {
         error_log('Could not set cookie. Headers already sent.');
       }
       // @codeCoverageIgnoreEnd
@@ -556,7 +576,7 @@ class Facebook
     // environment
     // @codeCoverageIgnoreStart
     } else {
-      setcookie($cookieName, $value, $expires, '/', '.' . $domain);
+      setcookie($cookieName, $value, $expires, '/', $domain);
     }
     // @codeCoverageIgnoreEnd
   }
@@ -583,10 +603,9 @@ class Facebook
         $this->getApiSecret()
       );
       if ($session['sig'] != $expected_sig) {
-        // disable error log if a argc is set as we are most likely running in
-        // a CLI environment
+        // disable error log if we are running in a CLI environment
         // @codeCoverageIgnoreStart
-        if (!array_key_exists('argc', $_SERVER)) {
+        if (php_sapi_name() != 'cli') {
           error_log('Got invalid session signature in cookie.');
         }
         // @codeCoverageIgnoreEnd
@@ -605,7 +624,7 @@ class Facebook
    * @param $method String the method name.
    * @return String the URL for the given parameters
    */
-  private function getApiUrl($method) {
+  protected function getApiUrl($method) {
     static $READ_ONLY_CALLS =
       array('admin.getallocation' => 1,
             'admin.getappproperties' => 1,
@@ -682,7 +701,7 @@ class Facebook
    * @param $params Array optional query parameters
    * @return String the URL for the given parameters
    */
-  private function getUrl($name, $path='', $params=array()) {
+  protected function getUrl($name, $path='', $params=array()) {
     $url = self::$DOMAIN_MAP[$name];
     if ($path) {
       if ($path[0] === '/') {
@@ -702,7 +721,7 @@ class Facebook
    *
    * @return String the current URL
    */
-  private function getCurrentUrl() {
+  protected function getCurrentUrl() {
     $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on'
       ? 'https://'
       : 'http://';
@@ -740,7 +759,7 @@ class Facebook
    * @param String $secret the secret to sign with
    * @return String the generated signature
    */
-  private static function generateSignature($params, $secret) {
+  protected static function generateSignature($params, $secret) {
     // work with sorted data
     ksort($params);
 
