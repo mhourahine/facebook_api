@@ -6,6 +6,14 @@
 require_once "{$CONFIG->pluginspath}facebookservice/vendors/facebook-php-sdk/src/facebook.php";
 
 function facebookservice_use_fbconnect() {
+	if (!$key = get_plugin_setting('api_key', 'facebookservice')) {
+		return FALSE;
+	}
+	
+	if (!$secret = get_plugin_setting('api_secret', 'facebookservice')) {
+		return FALSE;
+	}
+	
 	return get_plugin_setting('sign_on', 'facebookservice') == 'yes';
 }
 
