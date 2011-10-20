@@ -5,6 +5,11 @@
 
 require_once "{$CONFIG->pluginspath}facebookservice/vendors/facebook-php-sdk/src/facebook.php";
 
+//@patch - local dev fix
+Facebook::$CURL_OPTS[CURLOPT_SSL_VERIFYPEER] = false;
+Facebook::$CURL_OPTS[CURLOPT_SSL_VERIFYHOST] = 2;
+
+
 function facebookservice_use_fbconnect() {
 	if (!$key = get_plugin_setting('api_key', 'facebookservice')) {
 		return FALSE;
@@ -71,10 +76,11 @@ function facebookservice_get_authorize_url($next='') {
 	}
 	
 	$facebook = facebookservice_api();
-	return $facebook->getLoginUrl(array(
+	$url = $facebook->getLoginUrl(array(
 		'next' => $next,
 		'req_perms' => 'offline_access,email',
 	));
+	return $url;
 }
 
 function facebookservice_login() {
@@ -90,13 +96,20 @@ function facebookservice_login() {
 		forward();
 	}
 	
+
+	
 	// attempt to find user
-	$values = array(
-		'plugin:settings:facebookservice:access_token' => $session['access_token'],
-		'plugin:settings:facebookservice:uid' => $session['uid'],
+	$options = array(
+		'private_setting_name_value_pairs'=>array(
+			'plugin:user_setting:facebookservice:access_token' => $session['access_token'],
+			'plugin:user_setting:facebookservice:uid' => $session['uid']
+			),
 	);
 	
-	if (!$users = get_entities_from_private_setting_multi($values, 'user', '', 0, '', 0)) {
+	$users = elgg_get_entities_from_private_settings($options);
+	error_log("Users found: ".count($users));
+	
+	if (!$users) {
 		$data = $facebook->api('/me');
 		
 		// backward compatibility for stalled-development FBConnect plugin
@@ -112,13 +125,18 @@ function facebookservice_login() {
 		if (is_array($facebook_users) && count($facebook_users) == 1) {
 			// convert existing account
 			$user = $facebook_users[0];
-			login($user);
 			
 			// remove unused metadata
 			remove_metadata($user->getGUID(), 'facebook_uid');
 			remove_metadata($user->getGUID(), 'facebook_controlled_profile');
+
+			// register user's access tokens
+			elgg_set_plugin_user_setting('access_token', $session['access_token'], $user->getGUID(), 'facebookservice');
+			elgg_set_plugin_user_setting('uid', $session['uid'], $user->getGUID(), 'facebookservice');
+
+			login($user);
 		}
-		
+	
 		if (!$user) {
 			// check new registration allowed
 			if (!$CONFIG->allow_registration) {
@@ -133,7 +151,7 @@ function facebookservice_login() {
 				forward();
 			}
 			
-			$username = substr(parse_url($data['link'], PHP_URL_PATH), 1) . '_facebook';
+			$username = substr(parse_url($data['link'], PHP_URL_PATH), 1) . '_fb';
 			$password = generate_random_cleartext_password();
 			
 			try {
@@ -150,18 +168,19 @@ function facebookservice_login() {
 			$user = new ElggUser($user_id);
 			
 			// pull in Facebook icon
-			facebookservice_update_user_avatar($user, "https://graph.facebook.com/{$data['id']}/picture?type=large");
+			if (! facebookservice_update_user_avatar($user, "https://graph.facebook.com/{$data['id']}/picture?type=large")) {
+				register_error(elgg_echo('facebookservice:avatar:error'));
+			}
 			
+			// register user's access tokens
+			elgg_set_plugin_user_setting('access_token', $session['access_token'], $user->getGUID(), 'facebookservice');
+			elgg_set_plugin_user_setting('uid', $session['uid'], $user->getGUID(), 'facebookservice');
+
 			system_message(elgg_echo('facebookservice:login:new'));
 			login($user);
+			error_log("made it past login");
 		}
 		
-		// register user's access tokens
-		set_plugin_usersetting('access_token', $session['access_token'], $user->getGUID(), 'facebookservice');
-		set_plugin_usersetting('uid', $session['uid'], $user->getGUID(), 'facebookservice');
-		
-		system_message(elgg_echo('facebookservice:login:success'));
-		forward();
 	} elseif (count($users) == 1) {
 		login($users[0]);
 		

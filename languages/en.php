@@ -22,6 +22,7 @@ $english = array(
 	'facebookservice:usersettings:authorized' => "You have authorized {$CONFIG->site->name} to access your Facebook account: <a href=\"%2\$s\">%1\$s</a>.",
 	'facebookservice:usersettings:revoke' => 'Click <a href="%s">here</a> to revoke access.',
 	'facebookservice:revoke:success' => 'Facebook access has been revoked.',
+	'facebookservice:avatar:error' => 'Unable to retrieve user profile icon.',
 );
 
 add_translation('en', $english);
